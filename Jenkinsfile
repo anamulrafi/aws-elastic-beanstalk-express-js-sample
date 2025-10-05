@@ -41,6 +41,7 @@ pipeline {
       post { always { archiveArtifacts artifacts: 'odc/*', onlyIfSuccessful: false } }
     }
 
+
     stage('Docker build') {
       steps { sh 'docker build -t ${IMAGE_NAME}:${BUILD_NUMBER} -t ${IMAGE_NAME}:latest .' }
     }
