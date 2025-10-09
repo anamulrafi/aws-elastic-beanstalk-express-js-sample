@@ -1,7 +1,7 @@
 FROM node:16-alpine
 WORKDIR /app
 COPY package*.json ./
-# Assignment requires npm install --save (kept as requested)
+# Assignment requires npm install --save
 RUN npm install --save || true
 COPY . .
 EXPOSE 8081

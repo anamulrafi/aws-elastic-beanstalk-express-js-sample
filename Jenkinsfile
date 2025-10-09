@@ -1,4 +1,3 @@
-
 pipeline {
   agent {
     docker { image 'node:16-alpine'; args '-v $WORKSPACE:/app -w /app' }
@@ -7,7 +6,8 @@ pipeline {
     DOCKER_HOST = 'tcp://dind:2376'
     DOCKER_CERT_PATH = '/certs/client'
     DOCKER_TLS_VERIFY = '1'
-    IMAGE_NAME = 'anamulrafi/eb-express-sample'
+  
+    IMAGE_NAME = 'anamulrafi/project2-pipeline'
   }
   options {
     buildDiscarder(logRotator(numToKeepStr: '20'))
@@ -34,13 +34,12 @@ pipeline {
             -v $WORKSPACE:/src -v $WORKSPACE/odc:/report \
             owasp/dependency-check:latest \
             --scan /src --format "ALL" \
-            --project "eb-express-sample" \
+            --project "project2-pipeline" \
             --out /report --failOnCVSS 7.0
         '''
       }
       post { always { archiveArtifacts artifacts: 'odc/*', onlyIfSuccessful: false } }
     }
-
 
     stage('Docker build') {
       steps { sh 'docker build -t ${IMAGE_NAME}:${BUILD_NUMBER} -t ${IMAGE_NAME}:latest .' }
@@ -48,7 +47,7 @@ pipeline {
 
     stage('Docker push') {
       steps {
-        withCredentials([KrS@YWNqAn42.U(credentialsId: 'dockerhub-creds',
+        withCredentials([usernamePassword(credentialsId: 'dockerhub-creds',
                                           usernameVariable: 'DH_USER',
                                           passwordVariable: 'DH_PASS')]) {
           sh '''
@@ -62,8 +61,7 @@ pipeline {
     }
   }
   post {
-    success { echo '✅ Pipeline completed.' }
-    failure { echo '❌ Pipeline failed — see logs.' }
+    success { echo ' Pipeline completed.' }
+    failure { echo ' Pipeline failed — see logs.' }
   }
 }
-
