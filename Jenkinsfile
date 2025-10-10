@@ -1,67 +1,87 @@
+// Jenkinsfile — Task 1 (CI/CD Automation)
 pipeline {
   agent {
-    docker { image 'node:16-alpine'; args '-v $WORKSPACE:/app -w /app' }
+    // Use Node 16 as the build agent
+    docker {
+      image 'node:16-alpine'
+      // Run as root & mount host Docker socket so we can docker build/push
+      args '--user root -v /var/run/docker.sock:/var/run/docker.sock'
+    }
   }
+
   environment {
-    DOCKER_HOST = 'tcp://dind:2376'
-    DOCKER_CERT_PATH = '/certs/client'
-    DOCKER_TLS_VERIFY = '1'
-  
-    IMAGE_NAME = 'anamulrafi/project2-pipeline'
+    // Docker Hub settings
+    REGISTRY           = ''                    // empty for Docker Hub
+    REGISTRY_NAMESPACE = 'anamulrafi'          // your Docker Hub username
+    APP_NAME           = '21995048_project2_pipeline' // your repo name
+    IMAGE_TAG          = "${env.BUILD_NUMBER}" // each build gets its own tag
   }
+
   options {
-    buildDiscarder(logRotator(numToKeepStr: '20'))
     timestamps()
     ansiColor('xterm')
   }
+
   stages {
-    stage('Checkout') { steps { checkout scm } }
-
-    stage('Install deps') {
-      steps { sh 'npm install --save' }
-    }
-
-    stage('Unit tests') {
-      steps { sh 'npm test || echo "No tests configured"' }
-      post { always { junit allowEmptyResults: true, testResults: 'reports/junit/*.xml' } }
-    }
-
-    stage('Security scan (OWASP Dependency-Check)') {
+    stage('Prepare Docker CLI') {
       steps {
         sh '''
-          mkdir -p odc && chmod -R 777 odc
-          docker run --rm -e JAVA_OPTS="-Xmx1g" \
-            -v $WORKSPACE:/src -v $WORKSPACE/odc:/report \
-            owasp/dependency-check:latest \
-            --scan /src --format "ALL" \
-            --project "project2-pipeline" \
-            --out /report --failOnCVSS 7.0
+          set -eux
+          # Install docker CLI inside the Node 16 container
+          if [ -f /etc/alpine-release ]; then
+            apk add --no-cache docker-cli git
+          else
+            apt-get update && apt-get install -y docker.io git && rm -rf /var/lib/apt/lists/*
+          fi
+          docker version || true
         '''
       }
-      post { always { archiveArtifacts artifacts: 'odc/*', onlyIfSuccessful: false } }
     }
 
-    stage('Docker build') {
-      steps { sh 'docker build -t ${IMAGE_NAME}:${BUILD_NUMBER} -t ${IMAGE_NAME}:latest .' }
+    stage('Checkout') {
+      steps { checkout scm }
     }
 
-    stage('Docker push') {
+    stage('Install dependencies') {
       steps {
-        withCredentials([usernamePassword(credentialsId: 'dockerhub-creds',
-                                          usernameVariable: 'DH_USER',
-                                          passwordVariable: 'DH_PASS')]) {
-          sh '''
-            echo "$DH_PASS" | docker login -u "$DH_USER" --password-stdin
-            docker push ${IMAGE_NAME}:${BUILD_NUMBER}
-            docker push ${IMAGE_NAME}:latest
-            docker logout
-          '''
-        }
+        // required: use npm install --save
+        sh 'npm install --save'
+      }
+    }
+
+    stage('Run unit tests') {
+      steps {
+        sh 'npm test'
+      }
+    }
+
+    stage('Build Docker image') {
+      steps {
+        sh '''
+          set -eux
+          IMAGE="${REGISTRY:+$REGISTRY/}${REGISTRY_NAMESPACE}/${APP_NAME}:${IMAGE_TAG}"
+          echo "$IMAGE" > .image_name
+          docker build -t "$IMAGE" .
+        '''
+      }
+    }
+
+    stage('Push Docker image') {
+      environment { REGISTRY_CREDS = credentials('registry_credentials') }
+      steps {
+        sh '''
+          set -eux
+          IMAGE="$(cat .image_name)"
+
+          echo "$REGISTRY_CREDS_PSW" | docker login -u "$REGISTRY_CREDS_USR" --password-stdin
+          docker push "$IMAGE"
+          echo "✅ Image pushed successfully: $IMAGE"
+        '''
       }
     }
   }
+
   post {
-    success { echo ' Pipeline completed.' }
-    failure { echo ' Pipeline failed — see logs.' }
+    always { cleanWs() }
   }
 }
